@@ -16,6 +16,7 @@ from nsenter import Namespace
 
 logger = logging.getLogger(__name__)
 
+
 def shell_quote(arg):
     return shlex.quote(str(arg))
 
@@ -27,6 +28,7 @@ class Opts:
 
 class NamespaceSetup:
     """Create a triple-namespace setup"""
+
     def __init__(self, opts=None):
         self.opts = opts or Opts()
 
@@ -78,7 +80,7 @@ done
     def run_in_host(self, script, **kw):
         return subprocess.run(script, shell=True, check=True, **kw)
 
-    def run_in_netns(self, netns:str, script:str, **kw):
+    def run_in_netns(self, netns: str, script: str, **kw):
         cmd = f"ip netns exec {netns} bash -c {shell_quote(script)}"
         return subprocess.run(cmd, **kw, shell=True, check=True)
 
@@ -91,7 +93,7 @@ class EchoServerThread(Thread):
     def read_echo(self, conn, events):
         data = conn.recv(1000)
         if len(data) == 0:
-            print('closing', conn)
+            print("closing", conn)
             self.sel.unregister(conn)
         else:
             conn.sendall(data)
@@ -172,7 +174,7 @@ class PexpectReaderThread:
 
 def pexpect_nice_close(spawn):
     try:
-        spawn.sendcontrol('c')
+        spawn.sendcontrol("c")
         spawn.expect(pexpect.EOF)
     finally:
         spawn.close()
@@ -197,7 +199,9 @@ def client_tcpdumper():
     yield spawn
     reader.stop()
     pexpect_nice_close(spawn)
-    logger.info("tcpdump exit status %s signal status %s", spawn.exitstatus, spawn.signalstatus)
+    logger.info(
+        "tcpdump exit status %s signal status %s", spawn.exitstatus, spawn.signalstatus
+    )
 
 
 class TestMain:
@@ -208,7 +212,7 @@ class TestMain:
             with Namespace("/var/run/netns/ns_server", "net"):
                 listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 listen_socket = exit_stack.push(listen_socket)
-            listen_socket.bind(('23.0.0.3', 5001))
+            listen_socket.bind(("23.0.0.3", 5001))
             server_thread = EchoServerThread(listen_socket)
             server_thread.start()
             exit_stack.callback(server_thread.stop)
@@ -222,13 +226,13 @@ class TestMain:
             time.sleep(1)
 
             client_socket.settimeout(1.0)
-            client_socket.bind(('12.0.0.1', 0))
-            client_socket.connect(('23.0.0.3', 5001))
+            client_socket.bind(("12.0.0.1", 0))
+            client_socket.connect(("23.0.0.3", 5001))
 
-            client_socket.sendall(b'0' * 5000)
+            client_socket.sendall(b"0" * 5000)
             data = recvall(client_socket, 5000)
             assert len(data) == 5000
 
-            client_socket.sendall(b'0' * 5000)
+            client_socket.sendall(b"0" * 5000)
             data = recvall(client_socket, 5000)
             assert len(data) == 5000
