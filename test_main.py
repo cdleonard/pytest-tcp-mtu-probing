@@ -1,14 +1,23 @@
-import pytest
-import logging
-import socket
-from threading import Thread
-from contextlib import ExitStack
-from nsenter import Namespace
+import contextlib
 import dataclasses
+import logging
 import selectors
+import shlex
+import socket
 import subprocess
+import sys
+import time
+from contextlib import ExitStack
+from threading import Thread
+
+import pexpect
+import pytest
+from nsenter import Namespace
 
 logger = logging.getLogger(__name__)
+
+def shell_quote(arg):
+    return shlex.quote(str(arg))
 
 
 @dataclasses.dataclass
@@ -70,8 +79,7 @@ done
         return subprocess.run(script, shell=True, check=True, **kw)
 
     def run_in_netns(self, netns:str, script:str, **kw):
-        import shlex
-        cmd = f"ip netns exec {netns} bash -c {shlex.quote(script)}"
+        cmd = f"ip netns exec {netns} bash -c {shell_quote(script)}"
         return subprocess.run(cmd, **kw, shell=True, check=True)
 
 
@@ -123,11 +131,80 @@ def recvall(sock, todo):
         assert todo > 0
 
 
+class PexpectReaderThread:
+    """Thread which reads from a pexpect spawn until EOF or stopped
+
+    All data is thrown away so this should be paired with a logfile
+    """
+
+    __slots__ = (
+        "thread",
+        "spawn",
+        "should_run",
+    )
+
+    def __init__(self, spawn, name=None):
+        self.spawn = spawn
+        self.thread = Thread(target=self.thread_main, daemon=True)
+        if name:
+            self.thread.name = name
+
+    def start(self):
+        self.should_run = True
+        self.thread.start()
+
+    def stop(self):
+        if self.thread is None:
+            return
+        self.should_run = False
+        self.thread.join()
+
+    def thread_main(self):
+        while self.should_run:
+            try:
+                self.spawn.read_nonblocking(128, 1)
+            except pexpect.EOF:
+                logger.debug("got EOF")
+                self.should_run = False
+            except pexpect.TIMEOUT:
+                pass
+
+
+def pexpect_nice_close(spawn):
+    try:
+        spawn.sendcontrol('c')
+        spawn.expect(pexpect.EOF)
+    finally:
+        spawn.close()
+
+
+def tcpdump_expect_listening(spawn):
+    """Wait for tcpdump to begin listening"""
+    spawn.expect("tcpdump:")
+    spawn.expect("listening on ")
+
+
+@contextlib.contextmanager
+def client_tcpdumper():
+    cmd = f"ip netns exec ns_client tcpdump -i veth_middle --packet-buffered"
+    cmd += " -n"
+    # Print a delta (micro-second resolution) between current and previous line on each dump line.
+    cmd += " -ttt"
+    spawn = pexpect.spawn(cmd, logfile=sys.stdout.buffer)
+    tcpdump_expect_listening(spawn)
+    reader = PexpectReaderThread(spawn)
+    reader.start()
+    yield spawn
+    reader.stop()
+    pexpect_nice_close(spawn)
+    logger.info("tcpdump exit status %s signal status %s", spawn.exitstatus, spawn.signalstatus)
+
+
 class TestMain:
     def test_basic(self):
         with ExitStack() as exit_stack:
             setup = exit_stack.enter_context(NamespaceSetup())
-            subprocess.run("ls -latr /var/run/netns/", shell=True, check=True)
+            exit_stack.enter_context(client_tcpdumper())
             with Namespace("/var/run/netns/ns_server", "net"):
                 listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 listen_socket = exit_stack.push(listen_socket)
@@ -136,11 +213,13 @@ class TestMain:
             server_thread.start()
             exit_stack.callback(server_thread.stop)
 
-            # FIXME: server is not guaranteed to be listening before connect
-
             with Namespace("/var/run/netns/ns_client", "net"):
                 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 client_socket = exit_stack.push(client_socket)
+
+            # FIXME: server is not guaranteed to be listening before connect
+            # sleep to ensure setup
+            time.sleep(1)
 
             client_socket.settimeout(1.0)
             client_socket.bind(('12.0.0.1', 0))
