@@ -24,6 +24,8 @@ def shell_quote(arg):
 @dataclasses.dataclass
 class Opts:
     himtu: int = 9300
+    tcp_mtu_probing: int = 1
+    icmp_blackhole: bool = True
 
 
 class NamespaceSetup:
@@ -59,9 +61,10 @@ ip netns exec ns_middle sysctl -w net.ipv4.ip_forward=1
 ip netns exec ns_client ethtool -K veth_middle gso off tso off
 
 # Explicit tcp mtu probing
-ip netns exec ns_client sysctl -w net.ipv4.tcp_mtu_probing=1
-
-# ICMP blackhole:
+ip netns exec ns_client sysctl -w net.ipv4.tcp_mtu_probing={self.opts.tcp_mtu_probing}
+"""
+        if self.opts.icmp_blackhole:
+            script += """
 ip netns exec ns_middle iptables -A INPUT -p icmp -j REJECT
 ip netns exec ns_middle iptables -A OUTPUT -p icmp -j REJECT
 """
