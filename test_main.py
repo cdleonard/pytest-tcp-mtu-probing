@@ -24,8 +24,13 @@ def shell_quote(arg):
 @dataclasses.dataclass
 class Opts:
     himtu: int = 9300
+    """High value of MTU"""
+
     tcp_mtu_probing: int = 1
+    """Value of /proc/sys/net/ipv4/tcp_mtu_probing"""
+
     icmp_blackhole: bool = True
+    """If true then suppress ICMPs"""
 
 
 class NamespaceSetup:
