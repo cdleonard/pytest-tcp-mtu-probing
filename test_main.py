@@ -32,6 +32,9 @@ class Opts:
     icmp_blackhole: bool = True
     """If true then suppress ICMPs"""
 
+    middle_delay: str = ""
+    """Delay to be introduced, taking a suffix like 'ms'"""
+
 
 class NamespaceSetup:
     """Create a triple-namespace setup"""
@@ -72,6 +75,11 @@ ip netns exec ns_client sysctl -w net.ipv4.tcp_mtu_probing={self.opts.tcp_mtu_pr
             script += """
 ip netns exec ns_middle iptables -A INPUT -p icmp -j REJECT
 ip netns exec ns_middle iptables -A OUTPUT -p icmp -j REJECT
+"""
+        if self.opts.middle_delay:
+            script += f"""
+ip netns exec ns_middle tc qdisc add dev veth_client root netem delay {self.opts.middle_delay}
+ip netns exec ns_middle tc qdisc add dev veth_server root netem delay {self.opts.middle_delay}
 """
         self.run_in_host(script)
 
@@ -215,7 +223,8 @@ def client_tcpdumper():
 class TestMain:
     def test_basic(self):
         with ExitStack() as exit_stack:
-            setup = exit_stack.enter_context(NamespaceSetup())
+            opts = Opts(middle_delay="50ms")
+            setup = exit_stack.enter_context(NamespaceSetup(opts))
             exit_stack.enter_context(client_tcpdumper())
             with Namespace("/var/run/netns/ns_server", "net"):
                 listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
