@@ -101,9 +101,10 @@ done
         return subprocess.run(cmd, **kw, shell=True, check=True)
 
 
-class EchoServerThread(Thread):
-    def __init__(self, socket):
+class SimpleServerThread(Thread):
+    def __init__(self, socket, mode="recv"):
         self.listen_socket = socket
+        self.mode = mode
         super().__init__()
 
     def read_echo(self, conn, events):
@@ -112,7 +113,12 @@ class EchoServerThread(Thread):
             print("closing", conn)
             self.sel.unregister(conn)
         else:
-            conn.sendall(data)
+            if self.mode == "echo":
+                conn.sendall(data)
+            elif self.mode == "recv":
+                pass
+            else:
+                raise ValueError(f"Unknown mode {self.mode}")
 
     def run(self):
         self.should_loop = True
@@ -223,14 +229,14 @@ def client_tcpdumper():
 class TestMain:
     def test_basic(self):
         with ExitStack() as exit_stack:
-            opts = Opts(middle_delay="50ms")
+            opts = Opts(middle_delay="20ms", tcp_mtu_probing=2)
             setup = exit_stack.enter_context(NamespaceSetup(opts))
             exit_stack.enter_context(client_tcpdumper())
             with Namespace("/var/run/netns/ns_server", "net"):
                 listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 listen_socket = exit_stack.push(listen_socket)
             listen_socket.bind(("23.0.0.3", 5001))
-            server_thread = EchoServerThread(listen_socket)
+            server_thread = SimpleServerThread(listen_socket)
             server_thread.start()
             exit_stack.callback(server_thread.stop)
 
@@ -246,10 +252,13 @@ class TestMain:
             client_socket.bind(("12.0.0.1", 0))
             client_socket.connect(("23.0.0.3", 5001))
 
+            client_socket.sendall(b"0" * 3000)
+            time.sleep(0.01)
+            client_socket.sendall(b"0" * 3000)
+            time.sleep(0.01)
+            time.sleep(0.01)
+            time.sleep(0.01)
+            client_socket.sendall(b"0" * 4000)
             client_socket.sendall(b"0" * 5000)
-            data = recvall(client_socket, 5000)
-            assert len(data) == 5000
-
-            client_socket.sendall(b"0" * 5000)
-            data = recvall(client_socket, 5000)
-            assert len(data) == 5000
+            client_socket.sendall(b"0" * 9000)
+            time.sleep(1)
