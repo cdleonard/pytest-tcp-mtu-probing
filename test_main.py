@@ -9,6 +9,7 @@ import sys
 import time
 from contextlib import ExitStack
 from threading import Thread
+import typing
 
 import pexpect
 import pytest
@@ -26,8 +27,17 @@ class Opts:
     himtu: int = 9300
     """High value of MTU"""
 
+    server_himtu: typing.Optional[int] = None
+    middle_himtu: typing.Optional[int] = None
+
     tcp_mtu_probing: int = 1
     """Value of /proc/sys/net/ipv4/tcp_mtu_probing"""
+
+    tcp_base_mss: typing.Optional[int] = None
+    """Value of /proc/sys/net/ipv4/tcp_base_mss"""
+
+    tcp_timestamps: typing.Optional[int] = None
+    """Value of /proc/sys/net/ipv4/tcp_timestamps"""
 
     icmp_blackhole: bool = True
     """If true then suppress ICMPs"""
@@ -57,9 +67,9 @@ ip netns exec ns_middle ip link set veth_client up mtu "{self.opts.himtu}"
 
 ip netns exec ns_server ip link add veth_middle type veth peer name veth_server netns ns_middle
 ip netns exec ns_server ip addr add dev veth_middle 23.0.0.3/24
-ip netns exec ns_server ip link set veth_middle up mtu "{self.opts.himtu}"
+ip netns exec ns_server ip link set veth_middle up mtu "{self.opts.server_himtu or self.opts.himtu}"
 ip netns exec ns_middle ip addr add dev veth_server 23.0.0.2/24
-ip netns exec ns_middle ip link set veth_server up mtu "{self.opts.himtu}"
+ip netns exec ns_middle ip link set veth_server up mtu "{self.opts.middle_himtu or self.opts.himtu}"
 
 ip netns exec ns_client ip route add 23.0.0.0/24 via 12.0.0.2
 ip netns exec ns_server ip route add 12.0.0.0/24 via 23.0.0.2
@@ -71,6 +81,13 @@ ip netns exec ns_client ethtool -K veth_middle gso off tso off
 # Explicit tcp mtu probing
 ip netns exec ns_client sysctl -w net.ipv4.tcp_mtu_probing={self.opts.tcp_mtu_probing}
 """
+        def optional_sysctl_cmd(key: str, val):
+            if val is None:
+                return ""
+            else:
+                return f"ip netns exec ns_client sysctl -w {key}={val}\n"
+        script += optional_sysctl_cmd("net.ipv4.tcp_base_mss", self.opts.tcp_base_mss)
+        script += optional_sysctl_cmd("net.ipv4.tcp_timestamps", self.opts.tcp_timestamps)
         if self.opts.icmp_blackhole:
             script += """
 ip netns exec ns_middle iptables -A INPUT -p icmp -j REJECT
@@ -229,7 +246,14 @@ def client_tcpdumper():
 class TestMain:
     def test_basic(self):
         with ExitStack() as exit_stack:
-            opts = Opts(middle_delay="20ms", tcp_mtu_probing=2)
+            opts = Opts(
+                middle_delay="10ms",
+                tcp_mtu_probing=2,
+                tcp_base_mss=1000,
+                tcp_timestamps=0,
+                middle_himtu=3000,
+                himtu=9040,
+            )
             setup = exit_stack.enter_context(NamespaceSetup(opts))
             exit_stack.enter_context(client_tcpdumper())
             with Namespace("/var/run/netns/ns_server", "net"):
@@ -262,3 +286,4 @@ class TestMain:
             client_socket.sendall(b"0" * 5000)
             client_socket.sendall(b"0" * 9000)
             time.sleep(1)
+            subprocess.run("ip netns exec ns_client nstat -a", shell=True, check=True)
