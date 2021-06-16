@@ -301,6 +301,9 @@ class TestMain:
 
             nstat = nstat_json(command_prefix="ip netns exec ns_client ")
             #logger.info("nstat:\n%s", json.dumps(nstat, indent=2))
-            assert nstat["kernel"]["TcpExtTCPMTUPFail"] == 1
+            logger.info("nstat: TcpRetransSegs: %s", nstat["kernel"]["TcpRetransSegs"])
+            logger.info("nstat: TcpExtTCPMTUPFail: %s", nstat["kernel"]["TcpExtTCPMTUPFail"])
+            logger.info("nstat: TcpExtTCPTimeouts: %s", nstat["kernel"]["TcpExtTCPTimeouts"])
             assert nstat["kernel"]["TcpRetransSegs"] == 5
+            assert nstat["kernel"]["TcpExtTCPMTUPFail"] == 1
             assert nstat["kernel"]["TcpExtTCPTimeouts"] == 0
