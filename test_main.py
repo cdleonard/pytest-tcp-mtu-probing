@@ -5,6 +5,7 @@ import selectors
 import shlex
 import socket
 import subprocess
+import json
 import sys
 import time
 from contextlib import ExitStack
@@ -243,6 +244,17 @@ def client_tcpdumper():
     )
 
 
+def nstat_json(command_prefix: str = ""):
+    runres = subprocess.run(
+        f"{command_prefix}nstat -a --zeros --json",
+        shell=True,
+        check=True,
+        stdout=subprocess.PIPE,
+        encoding="utf-8",
+    )
+    return json.loads(runres.stdout)
+
+
 class TestMain:
     def test_basic(self):
         with ExitStack() as exit_stack:
@@ -286,4 +298,9 @@ class TestMain:
             client_socket.sendall(b"0" * 5000)
             client_socket.sendall(b"0" * 9000)
             time.sleep(1)
-            subprocess.run("ip netns exec ns_client nstat -a", shell=True, check=True)
+
+            nstat = nstat_json(command_prefix="ip netns exec ns_client ")
+            #logger.info("nstat:\n%s", json.dumps(nstat, indent=2))
+            assert nstat["kernel"]["TcpExtTCPMTUPFail"] == 1
+            assert nstat["kernel"]["TcpRetransSegs"] == 5
+            assert nstat["kernel"]["TcpExtTCPTimeouts"] == 0
