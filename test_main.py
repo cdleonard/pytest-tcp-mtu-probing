@@ -272,6 +272,36 @@ def exit_stack():
         yield exit_stack
 
 
+def test_echo(exit_stack):
+    # Just test connect
+    opts = Opts()
+    setup = exit_stack.enter_context(NamespaceSetup(opts))
+    exit_stack.enter_context(client_tcpdumper())
+    with Namespace("/var/run/netns/ns_server", "net"):
+        listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listen_socket = exit_stack.push(listen_socket)
+    listen_socket.bind(("23.0.0.3", 5001))
+    server_thread = SimpleServerThread(listen_socket, mode="echo")
+    server_thread.start()
+    exit_stack.callback(server_thread.stop)
+
+    with Namespace("/var/run/netns/ns_client", "net"):
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket = exit_stack.push(client_socket)
+
+    # FIXME: server is not guaranteed to be listening before connect
+    # sleep to ensure setup
+    time.sleep(1)
+
+    client_socket.settimeout(1.0)
+    client_socket.bind(("12.0.0.1", 0))
+    client_socket.connect(("23.0.0.3", 5001))
+
+    client_socket.sendall(b"0" * 10000)
+    buf = recvall(client_socket, 10000)
+    assert len(buf) == 10000
+
+
 def test_cwnd(exit_stack):
     opts = Opts(
         middle_delay="10ms",
