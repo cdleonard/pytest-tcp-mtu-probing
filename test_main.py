@@ -50,6 +50,12 @@ class Opts:
 class NamespaceSetup:
     """Create a triple-namespace setup"""
 
+    client_netns_name = "ns_client"
+    middle_netns_name = "ns_middle"
+    server_netns_name = "ns_server"
+    client_ipaddr = "12.0.0.1"
+    server_ipaddr = "23.0.0.3"
+
     def __init__(self, opts=None):
         self.opts = opts or Opts()
 
@@ -104,6 +110,7 @@ ip netns exec ns_middle tc qdisc add dev veth_client root netem delay {self.opts
 ip netns exec ns_middle tc qdisc add dev veth_server root netem delay {self.opts.middle_delay}
 """
         self.run_in_host(script)
+        return self
 
     def __exit__(self, *args):
         script = """
@@ -315,3 +322,42 @@ def test_cwnd(exit_stack):
     assert nstat["kernel"]["TcpRetransSegs"] == 5
     assert nstat["kernel"]["TcpExtTCPMTUPFail"] == 1
     assert nstat["kernel"]["TcpExtTCPTimeouts"] == 0
+
+
+def test_ping_mtu(exit_stack):
+    opts = Opts(
+        middle_himtu=3000,
+        himtu=6000,
+    )
+    setup = exit_stack.enter_context(NamespaceSetup(opts))
+
+    def mtu_to_icmp_size(mtu):
+        return mtu - 20 - 8
+
+    def can_ping_client_to_server(mtu):
+        res = subprocess.run(
+            f"ip netns exec {setup.client_netns_name}"
+            f" ping {setup.server_ipaddr} -c1 -w1"
+            f" -s {mtu_to_icmp_size(mtu)}",
+            shell=True,
+        )
+        return res.returncode == 0
+
+    def can_ping_server_to_client(mtu):
+        res = subprocess.run(
+            f"ip netns exec {setup.server_netns_name}"
+            f" ping {setup.client_ipaddr} -c1 -w1"
+            f" -s {mtu_to_icmp_size(mtu)}",
+            shell=True,
+        )
+        return res.returncode == 0
+
+    assert can_ping_client_to_server(100)
+    assert can_ping_server_to_client(100)
+
+    assert can_ping_client_to_server(opts.middle_himtu)
+    assert can_ping_client_to_server(opts.middle_himtu - 1)
+    assert can_ping_client_to_server(opts.middle_himtu + 1) == False
+    assert can_ping_server_to_client(opts.middle_himtu)
+    #assert can_ping_server_to_client(opts.middle_himtu - 1)
+    #assert can_ping_server_to_client(opts.middle_himtu + 1) == False
