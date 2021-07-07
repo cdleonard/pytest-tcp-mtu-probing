@@ -15,6 +15,7 @@ import typing
 import pexpect
 import pytest
 from nsenter import Namespace
+from linux_tcp_info import tcp_info
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +275,13 @@ def exit_stack():
 
 def test_echo(exit_stack):
     # Just test connect
-    opts = Opts()
+    opts = Opts(
+        icmp_blackhole=False,
+        himtu=9040,
+        middle_himtu=3040,
+        tcp_mtu_probing=0,
+        tcp_timestamps=0,
+    )
     setup = exit_stack.enter_context(NamespaceSetup(opts))
     exit_stack.enter_context(client_tcpdumper())
     with Namespace("/var/run/netns/ns_server", "net"):
@@ -297,9 +304,13 @@ def test_echo(exit_stack):
     client_socket.bind(("12.0.0.1", 0))
     client_socket.connect(("23.0.0.3", 5001))
 
+    assert tcp_info.from_socket(client_socket).tcpi_snd_mss == 9000
+    assert tcp_info.from_socket(client_socket).tcpi_snd_cwnd == 10
     client_socket.sendall(b"0" * 10000)
     buf = recvall(client_socket, 10000)
     assert len(buf) == 10000
+    assert tcp_info.from_socket(client_socket).tcpi_snd_mss == 3000
+    assert tcp_info.from_socket(client_socket).tcpi_snd_cwnd >= 10
 
 
 def test_cwnd(exit_stack):
