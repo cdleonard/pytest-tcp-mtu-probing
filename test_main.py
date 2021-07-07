@@ -82,13 +82,17 @@ ip netns exec ns_client ethtool -K veth_middle gso off tso off
 # Explicit tcp mtu probing
 ip netns exec ns_client sysctl -w net.ipv4.tcp_mtu_probing={self.opts.tcp_mtu_probing}
 """
+
         def optional_sysctl_cmd(key: str, val):
             if val is None:
                 return ""
             else:
                 return f"ip netns exec ns_client sysctl -w {key}={val}\n"
+
         script += optional_sysctl_cmd("net.ipv4.tcp_base_mss", self.opts.tcp_base_mss)
-        script += optional_sysctl_cmd("net.ipv4.tcp_timestamps", self.opts.tcp_timestamps)
+        script += optional_sysctl_cmd(
+            "net.ipv4.tcp_timestamps", self.opts.tcp_timestamps
+        )
         if self.opts.icmp_blackhole:
             script += """
 ip netns exec ns_middle iptables -A INPUT -p icmp -j REJECT
