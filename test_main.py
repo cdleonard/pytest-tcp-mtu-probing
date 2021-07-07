@@ -255,55 +255,59 @@ def nstat_json(command_prefix: str = ""):
     return json.loads(runres.stdout)
 
 
-class TestMain:
-    def test_basic(self):
-        with ExitStack() as exit_stack:
-            opts = Opts(
-                middle_delay="10ms",
-                tcp_mtu_probing=2,
-                tcp_base_mss=1000,
-                tcp_timestamps=0,
-                middle_himtu=3000,
-                himtu=9040,
-            )
-            setup = exit_stack.enter_context(NamespaceSetup(opts))
-            exit_stack.enter_context(client_tcpdumper())
-            with Namespace("/var/run/netns/ns_server", "net"):
-                listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                listen_socket = exit_stack.push(listen_socket)
-            listen_socket.bind(("23.0.0.3", 5001))
-            server_thread = SimpleServerThread(listen_socket)
-            server_thread.start()
-            exit_stack.callback(server_thread.stop)
+@pytest.fixture
+def exit_stack():
+    with ExitStack() as exit_stack:
+        yield exit_stack
 
-            with Namespace("/var/run/netns/ns_client", "net"):
-                client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                client_socket = exit_stack.push(client_socket)
 
-            # FIXME: server is not guaranteed to be listening before connect
-            # sleep to ensure setup
-            time.sleep(1)
+def test_cwnd(exit_stack):
+    opts = Opts(
+        middle_delay="10ms",
+        tcp_mtu_probing=2,
+        tcp_base_mss=1000,
+        tcp_timestamps=0,
+        middle_himtu=3000,
+        himtu=9040,
+    )
+    setup = exit_stack.enter_context(NamespaceSetup(opts))
+    exit_stack.enter_context(client_tcpdumper())
+    with Namespace("/var/run/netns/ns_server", "net"):
+        listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listen_socket = exit_stack.push(listen_socket)
+    listen_socket.bind(("23.0.0.3", 5001))
+    server_thread = SimpleServerThread(listen_socket)
+    server_thread.start()
+    exit_stack.callback(server_thread.stop)
 
-            client_socket.settimeout(1.0)
-            client_socket.bind(("12.0.0.1", 0))
-            client_socket.connect(("23.0.0.3", 5001))
+    with Namespace("/var/run/netns/ns_client", "net"):
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket = exit_stack.push(client_socket)
 
-            client_socket.sendall(b"0" * 3000)
-            time.sleep(0.01)
-            client_socket.sendall(b"0" * 3000)
-            time.sleep(0.01)
-            time.sleep(0.01)
-            time.sleep(0.01)
-            client_socket.sendall(b"0" * 4000)
-            client_socket.sendall(b"0" * 5000)
-            client_socket.sendall(b"0" * 9000)
-            time.sleep(1)
+    # FIXME: server is not guaranteed to be listening before connect
+    # sleep to ensure setup
+    time.sleep(1)
 
-            nstat = nstat_json(command_prefix="ip netns exec ns_client ")
-            #logger.info("nstat:\n%s", json.dumps(nstat, indent=2))
-            logger.info("nstat: TcpRetransSegs: %s", nstat["kernel"]["TcpRetransSegs"])
-            logger.info("nstat: TcpExtTCPMTUPFail: %s", nstat["kernel"]["TcpExtTCPMTUPFail"])
-            logger.info("nstat: TcpExtTCPTimeouts: %s", nstat["kernel"]["TcpExtTCPTimeouts"])
-            assert nstat["kernel"]["TcpRetransSegs"] == 5
-            assert nstat["kernel"]["TcpExtTCPMTUPFail"] == 1
-            assert nstat["kernel"]["TcpExtTCPTimeouts"] == 0
+    client_socket.settimeout(1.0)
+    client_socket.bind(("12.0.0.1", 0))
+    client_socket.connect(("23.0.0.3", 5001))
+
+    client_socket.sendall(b"0" * 3000)
+    time.sleep(0.01)
+    client_socket.sendall(b"0" * 3000)
+    time.sleep(0.01)
+    time.sleep(0.01)
+    time.sleep(0.01)
+    client_socket.sendall(b"0" * 4000)
+    client_socket.sendall(b"0" * 5000)
+    client_socket.sendall(b"0" * 9000)
+    time.sleep(1)
+
+    nstat = nstat_json(command_prefix="ip netns exec ns_client ")
+    # logger.info("nstat:\n%s", json.dumps(nstat, indent=2))
+    logger.info("nstat: TcpRetransSegs: %s", nstat["kernel"]["TcpRetransSegs"])
+    logger.info("nstat: TcpExtTCPMTUPFail: %s", nstat["kernel"]["TcpExtTCPMTUPFail"])
+    logger.info("nstat: TcpExtTCPTimeouts: %s", nstat["kernel"]["TcpExtTCPTimeouts"])
+    assert nstat["kernel"]["TcpRetransSegs"] == 5
+    assert nstat["kernel"]["TcpExtTCPMTUPFail"] == 1
+    assert nstat["kernel"]["TcpExtTCPTimeouts"] == 0
