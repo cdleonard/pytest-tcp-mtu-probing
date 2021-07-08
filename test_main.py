@@ -33,13 +33,16 @@ class Opts:
     middle_himtu: typing.Optional[int] = None
 
     tcp_mtu_probing: int = 1
-    """Value of /proc/sys/net/ipv4/tcp_mtu_probing"""
+    """Value of /proc/sys/net/ipv4/tcp_mtu_probing on client"""
 
     tcp_base_mss: typing.Optional[int] = None
-    """Value of /proc/sys/net/ipv4/tcp_base_mss"""
+    """Value of /proc/sys/net/ipv4/tcp_base_mss on client"""
 
     tcp_timestamps: typing.Optional[int] = None
-    """Value of /proc/sys/net/ipv4/tcp_timestamps"""
+    """Value of /proc/sys/net/ipv4/tcp_timestamps on client"""
+
+    tcp_recovery: typing.Optional[int] = None
+    """Value of /proc/sys/net/ipv4/tcp_recovery on client"""
 
     icmp_blackhole: bool = True
     """If true then suppress ICMPs"""
@@ -100,6 +103,7 @@ ip netns exec ns_client sysctl -w net.ipv4.tcp_mtu_probing={self.opts.tcp_mtu_pr
         script += optional_sysctl_cmd(
             "net.ipv4.tcp_timestamps", self.opts.tcp_timestamps
         )
+        script += optional_sysctl_cmd("net.ipv4.tcp_recovery", self.opts.tcp_recovery)
         if self.opts.icmp_blackhole:
             script += """
 ip netns exec ns_middle iptables -A INPUT -p icmp -j REJECT
