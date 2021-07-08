@@ -1,4 +1,6 @@
-# Python tests for rfc4821 TCP Path MTU Discovery
+# Python tests for linux rfc4821 TCP MTU Probing
+
+See https://datatracker.ietf.org/doc/html/rfc4821
 
 To run: `./run.sh` which does `sudo tox` with additional logging.
 
